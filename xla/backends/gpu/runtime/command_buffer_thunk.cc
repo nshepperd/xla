@@ -144,7 +144,7 @@ absl::Status CommandBufferThunk::Initialize(const InitializeParams& params) {
   }
 
   TF_ASSIGN_OR_RETURN(std::shared_ptr<ExecutorCommandBuffer> cmd_buffer,
-                      GetOrCreateCommandBuffer(params.executor));
+                      GetOrCreateCommandBuffer(params.stream));
   absl::MutexLock lock(cmd_buffer->mutex);
 
   // Initialize commands.
@@ -241,7 +241,7 @@ absl::Status CommandBufferThunk::ExecuteOnStream(const ExecuteParams& params) {
 
   se::StreamExecutor* executor = params.stream->parent();
   TF_ASSIGN_OR_RETURN(std::shared_ptr<ExecutorCommandBuffer> cmd_buffer,
-                      GetOrCreateCommandBuffer(executor));
+                      GetOrCreateCommandBuffer(params.stream));
 
   absl::MutexLock lock(cmd_buffer->mutex);
 
@@ -303,21 +303,24 @@ absl::Status CommandBufferThunk::ExecuteOnStream(const ExecuteParams& params) {
 }
 
 absl::StatusOr<std::shared_ptr<CommandBufferThunk::ExecutorCommandBuffer>>
-CommandBufferThunk::GetOrCreateCommandBuffer(se::StreamExecutor* executor) {
+CommandBufferThunk::GetOrCreateCommandBuffer(se::Stream* stream) {
   absl::MutexLock lock(state_->mutex);
 
-  // Check if command buffer already exists
-  if (auto it = state_->command_buffers.find(executor);
+  // Check if command buffer already exists for this stream.
+  if (auto it = state_->command_buffers.find(stream);
       it != state_->command_buffers.end()) {
     return it->second;
   }
 
-  // Create a new empty command buffer.
+  // Create a new empty command buffer. Each stream gets its own CUgraphExec
+  // because concurrent execution of the same executable graph on different
+  // streams is undefined behavior per CUDA documentation.
+  se::StreamExecutor* executor = stream->parent();
   TF_ASSIGN_OR_RETURN(
       auto command_buffer,
       executor->CreateCommandBuffer(se::CommandBuffer::Mode::kPrimary));
   auto emplaced = state_->command_buffers.emplace(
-      executor,
+      stream,
       std::make_shared<ExecutorCommandBuffer>(std::move(command_buffer)));
 
   return emplaced.first->second;

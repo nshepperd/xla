@@ -114,14 +114,19 @@ class CommandBufferThunk : public Thunk {
   // Command buffer thunk owns commands buffers instantiated on all executors.
   struct State {
     absl::Mutex mutex;
-    absl::flat_hash_map<se::StreamExecutor*,
-                        std::shared_ptr<ExecutorCommandBuffer>>
+    // Keyed by Stream* (not StreamExecutor*) so that different threads using
+    // different streams on the same device get separate CUgraphExec instances.
+    // Concurrent execution of the same CUgraphExec on different streams is
+    // undefined behavior per CUDA documentation.
+    absl::flat_hash_map<se::Stream*, std::shared_ptr<ExecutorCommandBuffer>>
         command_buffers ABSL_GUARDED_BY(mutex);
   };
 
-  // Returns a command buffer instantiated for `executor` or creates new one.
+  // Returns a command buffer instantiated for `stream` or creates new one.
+  // Each stream gets its own CUgraphExec to avoid undefined behavior from
+  // concurrent launches of the same executable graph on different streams.
   absl::StatusOr<std::shared_ptr<ExecutorCommandBuffer>>
-  GetOrCreateCommandBuffer(se::StreamExecutor* executor);
+  GetOrCreateCommandBuffer(se::Stream* stream);
 
   // Each individual command buffer allocates state on device (CUDA graph) and
   // it adds up pretty quickly. To prevent OOM errors we proactively evict
