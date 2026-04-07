@@ -159,6 +159,15 @@ cc_library(
 )
 
 cc_library(
+    name = "pjrt_c_api_gpu_autotune_extension_hdrs",
+    hdrs = ["pjrt_c_api_gpu_autotune_extension.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":pjrt_c_api_hdrs",
+    ],
+)
+
+cc_library(
     name = "pjrt_c_api_stream_extension_hdrs",
     hdrs = ["pjrt_c_api_stream_extension.h"],
     visibility = ["//visibility:public"],
@@ -427,6 +436,7 @@ cc_library(
         ":pjrt_c_api_custom_partitioner_extension_hdrs",
         ":pjrt_c_api_ffi_extension_hdrs",
         ":pjrt_c_api_ffi_internal",
+        ":pjrt_c_api_gpu_autotune_extension_hdrs",
         ":pjrt_c_api_gpu_extension_hdrs",
         ":pjrt_c_api_hdrs",
         ":pjrt_c_api_helpers",
@@ -463,6 +473,7 @@ cc_library(
         "//xla/python:inspect_sharding",  # To register "InspectSharding" custom partitioning handler.
         "//xla/service:compiler",
         "//xla/service:custom_call_target_registry",
+        "//xla/service/gpu/autotuning:autotuner_util",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:str_format",

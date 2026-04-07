@@ -35,6 +35,7 @@ limitations under the License.
 #include "xla/pjrt/c/pjrt_c_api_custom_partitioner_extension.h"
 #include "xla/pjrt/c/pjrt_c_api_ffi_extension.h"
 #include "xla/pjrt/c/pjrt_c_api_ffi_internal.h"
+#include "xla/pjrt/c/pjrt_c_api_gpu_autotune_extension.h"
 #include "xla/pjrt/c/pjrt_c_api_gpu_extension.h"
 #include "xla/pjrt/c/pjrt_c_api_helpers.h"
 #include "xla/pjrt/c/pjrt_c_api_layouts_extension.h"
@@ -58,6 +59,7 @@ limitations under the License.
 #include "xla/python/custom_partition_callback.h"
 #include "xla/service/compiler.h"
 #include "xla/service/custom_call_target_registry.h"
+#include "xla/service/gpu/autotuning/autotuner_util.h"
 
 #if GOOGLE_CUDA
 #include "third_party/gpus/cuda/include/cuda_runtime_api.h"
@@ -488,12 +490,63 @@ PJRT_Error* PJRT_Gpu_Register_Custom_Call(
   }
 }
 
+PJRT_Error* PJRT_Gpu_Autotune_Serialize_Impl(
+    PJRT_Gpu_Autotune_Serialize_Args* args) {
+  PJRT_RETURN_IF_ERROR(ActualStructSizeIsGreaterOrEqual(
+      "PJRT_Gpu_Autotune_Serialize_Args",
+      PJRT_Gpu_Autotune_Serialize_Args_STRUCT_SIZE, args->struct_size));
+  static std::string serialized;
+  auto result =
+      xla::gpu::AutotunerUtil::SerializeAutotuneResults(args->as_textproto);
+  if (!result.ok()) {
+    return new PJRT_Error{result.status()};
+  }
+  serialized = std::move(*result);
+  args->out_data = serialized.data();
+  args->out_size = serialized.size();
+  return nullptr;
+}
+
+PJRT_Error* PJRT_Gpu_Autotune_Load_Impl(
+    PJRT_Gpu_Autotune_Load_Args* args) {
+  PJRT_RETURN_IF_ERROR(ActualStructSizeIsGreaterOrEqual(
+      "PJRT_Gpu_Autotune_Load_Args",
+      PJRT_Gpu_Autotune_Load_Args_STRUCT_SIZE, args->struct_size));
+  absl::Status status = xla::gpu::AutotunerUtil::LoadAutotuneResults(
+      absl::string_view(args->data, args->data_size), args->as_textproto,
+      args->allow_override);
+  if (!status.ok()) {
+    return new PJRT_Error{std::move(status)};
+  }
+  return nullptr;
+}
+
+PJRT_Error* PJRT_Gpu_Autotune_Clear_Impl(
+    PJRT_Gpu_Autotune_Clear_Args* args) {
+  PJRT_RETURN_IF_ERROR(ActualStructSizeIsGreaterOrEqual(
+      "PJRT_Gpu_Autotune_Clear_Args",
+      PJRT_Gpu_Autotune_Clear_Args_STRUCT_SIZE, args->struct_size));
+  xla::gpu::AutotunerUtil::ClearAutotuneResults();
+  return nullptr;
+}
+
 const PJRT_Api* GetGpuPjrtApi() {
+  static PJRT_Gpu_Autotune autotune{
+      PJRT_Extension_Base{
+          /*struct_size=*/PJRT_Gpu_Autotune_STRUCT_SIZE,
+          /*type=*/PJRT_Extension_Type::PJRT_Extension_Type_Gpu_Autotune,
+          /*next=*/&stream.base,
+      },
+      /*serialize=*/PJRT_Gpu_Autotune_Serialize_Impl,
+      /*load=*/PJRT_Gpu_Autotune_Load_Impl,
+      /*clear=*/PJRT_Gpu_Autotune_Clear_Impl,
+  };
+
   static PJRT_Gpu_Custom_Call custom_call{
       PJRT_Extension_Base{
           /*struct_size=*/PJRT_Gpu_Custom_Call_STRUCT_SIZE,
           /*type=*/PJRT_Extension_Type::PJRT_Extension_Type_Gpu_Custom_Call,
-          /*next=*/&stream.base,
+          /*next=*/&autotune.base,
       },
       /*custom_call=*/PJRT_Gpu_Register_Custom_Call,
   };
